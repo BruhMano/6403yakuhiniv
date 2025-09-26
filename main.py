@@ -21,15 +21,35 @@ main.py
     python main.py edges input.jpg
     python main.py corners input.jpg -o corners_result.png
 
-Автор: [Ваше имя]
+Автор: Якухин Иван
 """
 
 import argparse
 import os
+import time
 import numpy as np
 import cv2
 
-from implementation import ImageProcessing
+from implementation import ImageProcessing, Cv2ImageProcessing
+
+
+def timeit(func: callable, image: np.ndarray) -> any:
+    """
+        Измеряет время выполнения функции и возвращает результат и время.
+
+        Args:
+            func: Функция для измерения времени выполнения
+            arguments: Позиционные аргументы для функции
+
+        Returns:
+            Результат выполнения функции
+    """
+    start = time.time()
+    result = func(image)
+    end = time.time()
+    print(f"Execution time: {end - start}")
+
+    return result
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -43,6 +63,12 @@ def main() -> None:
             "circles",
         ],
         help="Метод обработки: edges, corners, circles",
+    )
+    parser.add_argument(
+        "-cv2",
+        action="store_true",
+        default=False,
+        help="Флаг запуска метода из библиотеки cv2",
     )
     parser.add_argument(
         "input",
@@ -61,17 +87,18 @@ def main() -> None:
         print(f"Ошибка: не удалось загрузить изображение {args.input}")
         return
 
-    processor = ImageProcessing()
-
-    kernel = np.eye(3)
+    if args.cv2:
+        processor = Cv2ImageProcessing()
+    else:
+        processor = ImageProcessing()
 
     # Выбор метода
     if args.method == "edges":
-        result = processor.edge_detection(image)
+        result = timeit(processor.edge_detection, image)
     elif args.method == "corners":
-        result = processor.corner_detection(image, 2)
+        result = timeit(processor.corner_detection, image)
     elif args.method == "circles":
-        result = processor.circle_detection(image)
+        result = timeit(processor.circle_detection, image)
     else:
         print("Ошибка: неизвестный метод")
         return
@@ -82,6 +109,8 @@ def main() -> None:
     else:
         base, ext = os.path.splitext(args.input)
         output_path = f"{base}_result.png"
+        if args.cv2:
+            output_path = "cv2_" + output_path
 
     # Сохранение результата
     cv2.imwrite(output_path, result)
