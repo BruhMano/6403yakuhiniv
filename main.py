@@ -26,7 +26,7 @@ main.py
 
 import argparse
 import os
-
+import numpy as np
 import cv2
 
 from implementation import ImageProcessing
@@ -63,11 +63,13 @@ def main() -> None:
 
     processor = ImageProcessing()
 
+    kernel = np.eye(3)
+
     # Выбор метода
     if args.method == "edges":
         result = processor.edge_detection(image)
     elif args.method == "corners":
-        result = processor.corner_detection(image)
+        result = processor.corner_detection(image, 2)
     elif args.method == "circles":
         result = processor.circle_detection(image)
     else:
