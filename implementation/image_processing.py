@@ -47,14 +47,6 @@ class ImageProcessing(interfaces.IImageProcessing):
         Returns:
             np.ndarray: Изображение после применения свёртки.
         """
-        if image.ndim not in (2, 3):
-            raise ValueError("Изображение должно быть grayscale (H, W) или RGB (H, W, C).")
-
-        if kernel.ndim != 2:
-            raise ValueError("Ядро должно быть 2D.")
-
-        if kernel.shape[0] % 2 == 0 or kernel.shape[1] % 2 == 0:
-            raise ValueError("Размеры ядра должны быть нечётными.")
 
         kernel = np.flip(kernel)
 
@@ -149,7 +141,7 @@ class ImageProcessing(interfaces.IImageProcessing):
         """
         ax = np.arange(-size // 2 + 1, size // 2 + 1)
         xx, yy = np.meshgrid(ax, ax)
-        kernel = np.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+        kernel = np.exp(-(xx**2 + yy**2) * (2 * sigma**2))
         return kernel / np.sum(kernel)
 
     def _sobel_filter(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -170,7 +162,7 @@ class ImageProcessing(interfaces.IImageProcessing):
 
         return gradient_x, gradient_y
 
-    def _non_max_suppression(self, x_grad: np.ndarray, y_grad: np.ndarray, tolerance: float = 0.9) -> np.ndarray:
+    def _non_max_suppression(self, x_grad: np.ndarray, y_grad: np.ndarray, tolerance = 0.9) -> np.ndarray:
         """
         Подавление немаксимумов.
 
@@ -322,7 +314,7 @@ class ImageProcessing(interfaces.IImageProcessing):
         Выполняет обнаружение окружностей на изображении.
 
         Использует преобразование Хафа для поиска окружностей.
-        Найденные окружности выделяются зелёным цветом, центры — красным.
+        Найденные окружности выделяются красным цветом.
 
         Args:
             image (np.ndarray): Входное изображение (RGB).
@@ -335,39 +327,48 @@ class ImageProcessing(interfaces.IImageProcessing):
         edges = self.edge_detection(image)
         height, width = edges.shape
         threshold = 0.6
-        accumulator = np.zeros((height, width, max_radius - min_radius + 1))
 
         theta = np.arange(0, 2 * np.pi, 0.1)
         radius_range = np.arange(min_radius, max_radius + 1, 1)
         cos_theta = np.cos(theta)
         sin_theta = np.sin(theta)
 
-        for radius_index in range(len(radius_range)):
-            current_radius = radius_range[radius_index]
-            edge_y_coords, edge_x_coords = np.where(edges > 0)
+        @njit
+        def internal_accumulator_processing():
+            """
+                Внутренняя функция заполнения аккумулятора см. алгоритм преобразования Хафа.
+                Необходимость для корректной работы декоратора njit.
+            """
+            accumulator = np.zeros((height, width, max_radius - min_radius + 1))
+            for radius_index in range(len(radius_range)):
+                current_radius = radius_range[radius_index]
+                edge_y_coords, edge_x_coords = np.where(edges > 0)
 
-            for edge_point_index in range(len(edge_x_coords)):
-                edge_x, edge_y = edge_x_coords[edge_point_index], edge_y_coords[edge_point_index]
+                for edge_point_index in range(len(edge_x_coords)):
+                    edge_x, edge_y = edge_x_coords[edge_point_index], edge_y_coords[edge_point_index]
 
-                # Вычисляем возможные центры для данной точки границы и радиуса
-                center_x_candidates = np.round(edge_x - current_radius * cos_theta).astype(int)
-                center_y_candidates = np.round(edge_y - current_radius * sin_theta).astype(int)
+                    # Вычисляем возможные центры для данной точки границы и радиуса
+                    center_x_candidates = np.round(edge_x - current_radius * cos_theta).astype(np.int64)
+                    center_y_candidates = np.round(edge_y - current_radius * sin_theta).astype(np.int64)
 
-                # Фильтруем центры, выходящие за границы изображения
-                valid_centers_mask = (
-                    (center_x_candidates >= 0) &
-                    (center_x_candidates < width) &
-                    (center_y_candidates >= 0) &
-                    (center_y_candidates < height)
-                )
-                valid_center_x = center_x_candidates[valid_centers_mask]
-                valid_center_y = center_y_candidates[valid_centers_mask]
+                    # Фильтруем центры, выходящие за границы изображения
+                    valid_centers_mask = (
+                        (center_x_candidates >= 0) &
+                        (center_x_candidates < width) &
+                        (center_y_candidates >= 0) &
+                        (center_y_candidates < height)
+                    )
+                    valid_center_x = center_x_candidates[valid_centers_mask]
+                    valid_center_y = center_y_candidates[valid_centers_mask]
 
-                # Голосуем за каждый валидный центр
-                for candidate_index in range(len(valid_center_x)):
-                    accumulator[valid_center_y[candidate_index],
-                                valid_center_x[candidate_index],
-                                radius_index] += 1
+                    # Голосуем за каждый валидный центр
+                    for candidate_index in range(len(valid_center_x)):
+                        accumulator[valid_center_y[candidate_index],
+                                    valid_center_x[candidate_index],
+                                    radius_index] += 1
+            return accumulator
+            
+        accumulator = internal_accumulator_processing()
 
         max_votes = accumulator.max()
         if max_votes == 0:
