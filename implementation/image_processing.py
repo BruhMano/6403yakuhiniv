@@ -48,7 +48,7 @@ class ImageProcessing(interfaces.IImageProcessing):
             np.ndarray: Изображение после применения свёртки.
         """
 
-        kernel = np.flip(kernel)
+        #kernel = np.flip(kernel)
 
         img_height, img_width = image.shape[:2]
         ker_height, ker_width = kernel.shape
