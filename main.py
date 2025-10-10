@@ -15,6 +15,7 @@ main.py
     python main.py [-l количество изображений] [-grey обработка в одноканальном режиме] [-odir путь_для_сохранения]
 
 Аргументы:
+    метод: edges | corners | circles
     -l [int]: Количество изображений для извлечения и обработки,
     -odir, --output_dir [str]: Директория для сохранения результата (по умолчанию: result/),
     -grey: Флаг обработки greyscale изображений.
@@ -39,6 +40,15 @@ def main() -> None:
         description="Обработка изображений собак с помощью классов DogImage и DogImageProcessor (Manual & OpenCV).",
     )
     parser.add_argument(
+        "method",
+        choices=[
+            "edges",
+            "corners",
+            "circles",
+        ],
+        help="Метод обработки: edges, corners, circles",
+    )
+    parser.add_argument(
         "-grey",
         action="store_true",
         default=False,
@@ -57,7 +67,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    processor = DogImageProcessor(api_key, args.output_dir, args.grey, args.limit)
+    processor = DogImageProcessor(api_key, args.output_dir, args.grey, args.limit, args.method)
     processor.process_and_save()
 
 

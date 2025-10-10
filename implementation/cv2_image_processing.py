@@ -119,7 +119,7 @@ class Cv2ImageProcessing(interfaces.IImageProcessing):
         gray = np.float32(gray)
         dst = cv2.cornerHarris(gray, 2, 3, 0.04)
         dst = cv2.dilate(dst, None)
-        result = image.copy()
+        result = np.zeros(image.shape).astype(np.uint8)
         result[dst > 0.01 * dst.max()] = [255, 0, 0]
         return result
 
@@ -140,7 +140,7 @@ class Cv2ImageProcessing(interfaces.IImageProcessing):
         circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1.2, 75,
                                    param1=200, param2=30,
                                    minRadius=50, maxRadius=100)
-        result = image.copy()
+        result = np.zeros(image.shape)
         if circles is not None:
             circles = np.uint16(np.around(circles))
             for i in circles[0]:

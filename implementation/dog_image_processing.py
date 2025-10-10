@@ -61,7 +61,7 @@ class DogImageProcessor:
 
     API_URL = "https://api.thedogapi.com/v1/images/search"
 
-    def __init__(self, api_key: str, output_dir: str, grey: bool, limit: int):
+    def __init__(self, api_key: str, output_dir: str, grey: bool, limit: int, operation: str):
         """
         Инициализирует процессор изображений собак.
         
@@ -78,12 +78,8 @@ class DogImageProcessor:
         self._output_dir = output_dir
         self._grey = grey
         self._limit = limit
+        self._operation = operation
         os.makedirs(self._output_dir, exist_ok=True)
-
-    @property
-    def limit(self) -> int:
-        """int: Возвращает лимит загружаемых изображений."""
-        return self._limit
 
     @time_logger
     def _fetch_images(self) -> List[Tuple[np.ndarray, str, str]]:
@@ -104,7 +100,7 @@ class DogImageProcessor:
             ValueError: При проблемах парсинга JSON или обработки изображений.
         """
         headers = {"x-api-key": self._api_key}
-        params = {"limit": self.limit, "has_breeds": 1}
+        params = {"limit": self._limit, "has_breeds": 1}
         response = requests.get(self.API_URL, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
@@ -157,16 +153,30 @@ class DogImageProcessor:
             self._save_image(dog.image, idx, breed, "original")
 
             # Модифицируем своими методами и сохраняем
-            edges = GrayscaleDogImage(dog.edges(), dog.breed, dog.url, dog.processor)
-            new_image = dog + edges
-            self._save_image(new_image.image, idx, breed, "with_edges")
+            if self._operation == 'edges':
+                filter_image = dog.edges()
+            elif self._operation == 'corners':
+                filter_image = dog.corners()
+            elif self._operation == 'circles':
+                filter_image = dog.circles()
+            else: filter_image = np.zeros(dog.image.shape)
+            filter_dog = ColorDogImage(filter_image, dog.breed, dog.url, dog.processor)
+            new_image = dog + filter_dog
+            self._save_image(new_image.image, idx, breed, f"with_{self._operation}")
 
             dog.processor = Cv2ImageProcessing()
 
             # Модифицируем методом cv2 и сохраняем
-            edges.image = dog.edges()
-            new_image = dog + edges
-            self._save_image(new_image.image, idx, breed, "with_edges_cv2")
+            if self._operation == 'edges':
+                filter_image = dog.edges()
+            elif self._operation == 'corners':
+                filter_image = dog.corners()
+            elif self._operation == 'circles':
+                filter_image = dog.circles()
+            else: filter_image = np.zeros(dog.image.shape)
+            filter_dog = ColorDogImage(filter_image, dog.breed, dog.url, dog.processor)
+            new_image = dog + filter_dog
+            self._save_image(new_image.image, idx, breed, f"with_{self._operation}_cv2")
 
     def _save_image(self, img_array: np.ndarray, idx: int, breed: str, suffix: str) -> None:
         """
