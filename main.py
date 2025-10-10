@@ -1,120 +1,64 @@
 """
 main.py
 
-Пример лабораторной работы по курсу "Технологии программирования на Python".
+Модуль предоставляет интерфейс командной строки для настройки и запуска
+процесса загрузки, обработки и сохранения изображений собак из Dog API.
 
-Модуль предназначен для демонстрации работы с обработкой изображений с помощью библиотеки OpenCV.
-Реализован консольный интерфейс для применения различных методов обработки к изображению:
-- обнаружение границ (edges)
-- обнаружение углов (corners)
-- обнаружение окружностей (circles)
+Основные возможности:
+    - Загрузка изображений через Dog API с аутентификацией
+    - Настройка количества обрабатываемых изображений
+    - Выбор режима обработки (цветной/grayscale)
+    - Указание директории для сохранения результатов
+    - Интеграция с классами DogImage и DogImageProcessor
 
 Запуск:
-    python main.py <метод> <путь_к_изображению> [-o путь_для_сохранения]
+    python main.py [-l количество изображений] [-grey обработка в одноканальном режиме] [-odir путь_для_сохранения]
 
 Аргументы:
-    метод: edges | corners | circles
-    путь_к_изображению: путь к входному изображению
-    -o, --output: путь для сохранения результата (по умолчанию: <имя_входного_файла>_result.png)
+    -l [int]: Количество изображений для извлечения и обработки,
+    -odir, --output_dir [str]: Директория для сохранения результата (по умолчанию: result/),
+    -grey: Флаг обработки greyscale изображений.
 
 Пример:
-    python main.py edges input.jpg
-    python main.py corners input.jpg -o corners_result.png
+    python main.py 
+    python main.py -l 10 -odir 'res/' -grey
 
 Автор: Якухин Иван
 """
 
 import argparse
-import os
-import time
-import numpy as np
-import cv2
-
-from implementation import ImageProcessing, Cv2ImageProcessing
-
-
-def timeit(func: callable, image: np.ndarray) -> any:
-    """
-        Измеряет время выполнения функции и возвращает результат и время.
-
-        Args:
-            func: Функция для измерения времени выполнения
-            arguments: Позиционные аргументы для функции
-
-        Returns:
-            Результат выполнения функции
-    """
-    start = time.time()
-    result = func(image)
-    end = time.time()
-    print(f"Execution time: {end - start}")
-
-    return result
+from dotenv import load_dotenv
+from implementation import DogImageProcessor
+from os import getenv
 
 def main() -> None:
+    load_dotenv()
+    api_key = getenv('API_KEY')
+
     parser = argparse.ArgumentParser(
-        description="Обработка изображения с помощью методов ImageProcessing (OpenCV).",
+        description="Обработка изображений собак с помощью классов DogImage и DogImageProcessor (Manual & OpenCV).",
     )
     parser.add_argument(
-        "method",
-        choices=[
-            "edges",
-            "corners",
-            "circles",
-        ],
-        help="Метод обработки: edges, corners, circles",
-    )
-    parser.add_argument(
-        "-cv2",
+        "-grey",
         action="store_true",
         default=False,
-        help="Флаг запуска метода из библиотеки cv2",
+        help="Флаг обработки greyscale изображений",
     )
     parser.add_argument(
-        "input",
-        help="Путь к входному изображению",
+        "-odir", "--output_dir",
+        default="results/",
+        help="Директория для сохранения результата (по умолчанию: result/)",
     )
     parser.add_argument(
-        "-o", "--output",
-        help="Путь для сохранения результата (по умолчанию: <input>_result.png)",
+        "-l", "--limit",
+        default=1,
+        help="Количество изображений для извлечения и обработки",
     )
 
     args = parser.parse_args()
 
-    # Загрузка изображения
-    image = cv2.imread(args.input)
-    if image is None:
-        print(f"Ошибка: не удалось загрузить изображение {args.input}")
-        return
-
-    if args.cv2:
-        processor = Cv2ImageProcessing()
-    else:
-        processor = ImageProcessing()
-
-    # Выбор метода
-    if args.method == "edges":
-        result = timeit(processor.edge_detection, image)
-    elif args.method == "corners":
-        result = timeit(processor.corner_detection, image)
-    elif args.method == "circles":
-        result = timeit(processor.circle_detection, image)
-    else:
-        print("Ошибка: неизвестный метод")
-        return
-
-    # Определение пути для сохранения
-    if args.output:
-        output_path = args.output
-    else:
-        base, ext = os.path.splitext(args.input)
-        output_path = f"{base}_result.png"
-        if args.cv2:
-            output_path = "cv2_" + output_path
-
-    # Сохранение результата
-    cv2.imwrite(output_path, result)
-    print(f"Результат сохранён в {output_path}")
+    processor = DogImageProcessor(api_key, args.output_dir, args.grey, args.limit)
+    processor.process_and_save()
 
 
 if __name__ == "__main__":

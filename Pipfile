@@ -20,6 +20,7 @@ flake8-import-order = "*"
 flake8-docstrings-complete = "*"
 flake8-clean-block = "*"
 opencv-python = "*"
+dotenv = "*"
 numba = "*"
 
 [dev-packages]

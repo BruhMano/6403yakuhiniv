@@ -2,4 +2,5 @@
 results/
 __pycache__/
 .flake8
+.env
 .vscode/

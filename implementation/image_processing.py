@@ -109,6 +109,8 @@ class ImageProcessing(interfaces.IImageProcessing):
         Returns:
             np.ndarray: Одноканальное изображение в оттенках серого.
         """
+        if image.ndim < 3:
+            return image
         return (0.299 * image[:, :, 0] +
                 0.587 * image[:, :, 1] +
                 0.114 * image[:, :, 2]).astype(image.dtype)
@@ -305,7 +307,7 @@ class ImageProcessing(interfaces.IImageProcessing):
                 trace = sxx + syy
                 dst[row, col] = det - k * (trace ** 2)
 
-        result = image.copy()
+        result = np.zeros((height, width, 3))
         result[dst > 0.01 * dst.max()] = [255, 0, 0]
         return result
 
@@ -369,15 +371,14 @@ class ImageProcessing(interfaces.IImageProcessing):
             return accumulator
             
         accumulator = internal_accumulator_processing()
-
+        result = np.zeros((height, width, 3))
         max_votes = accumulator.max()
         if max_votes == 0:
-            return image.copy()
+            return result
 
         centers = np.where(accumulator >= threshold * max_votes)
         circles = list(zip(centers[1], centers[0], radius_range[centers[2]]))  # (x, y, radius)
 
-        result = image.copy()
         if circles is not None:
             circles = np.uint16(np.around(circles))
             for circle_params in circles:
