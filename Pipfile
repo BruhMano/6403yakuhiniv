@@ -22,6 +22,8 @@ flake8-clean-block = "*"
 opencv-python = "*"
 dotenv = "*"
 numba = "*"
+pandas = "*"
+pyarrow = "*"
 
 [dev-packages]
 

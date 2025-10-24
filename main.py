@@ -1,64 +1,32 @@
 """
 main.py
 
-Модуль предоставляет интерфейс командной строки для настройки и запуска
-процесса загрузки, обработки и сохранения изображений собак из Dog API.
-
-Основные возможности:
-    - Загрузка изображений через Dog API с аутентификацией
-    - Настройка количества обрабатываемых изображений
-    - Выбор режима обработки (цветной/grayscale)
-    - Указание директории для сохранения результатов
-    - Интеграция с классами DogImage и DogImageProcessor
-
-Запуск:
-    python main.py [-l количество изображений] [-grey обработка в одноканальном режиме] [-odir путь_для_сохранения]
-
-Аргументы:
-    -l [int]: Количество изображений для извлечения и обработки,
-    -odir, --output_dir [str]: Директория для сохранения результата (по умолчанию: result/),
-    -grey: Флаг обработки greyscale изображений.
-
-Пример:
-    python main.py 
-    python main.py -l 10 -odir 'res/' -grey
-
 Автор: Якухин Иван
 """
 
-import argparse
-from dotenv import load_dotenv
-from implementation import DogImageProcessor
-from os import getenv
+import pandas as pd
+import numpy as np
+
+CSV_FILE = 'global_emissions.csv'
+PARQUET_FILE = 'global_emissions.parquet'
+
+def read_chunks(filename, chunksize=10000):
+    for chunk in pd.read_csv(filename, chunksize=chunksize):
+        yield chunk
+
+def total_emission(chunks):
+    gases = ['Emissions.Production.CO2.Total', 'Emissions.Production.CH4', 'Emissions.Production.N2O']
+    for chunk in chunks:
+        aggregaterd = chunk.groupby('Country.Name')[gases].mean().sum(axis = 1)
+        aggregaterd.name = 'Emissions.Production.Total'
+        aggregaterd = aggregaterd.reset_index()
+        chunk = pd.merge(chunk, aggregaterd)
+        population = chunk.groupby('Country.Name')
+    return chunk
 
 def main() -> None:
-    load_dotenv()
-    api_key = getenv('API_KEY')
-
-    parser = argparse.ArgumentParser(
-        description="Обработка изображений собак с помощью классов DogImage и DogImageProcessor (Manual & OpenCV).",
-    )
-    parser.add_argument(
-        "-grey",
-        action="store_true",
-        default=False,
-        help="Флаг обработки greyscale изображений",
-    )
-    parser.add_argument(
-        "-odir", "--output_dir",
-        default="results/",
-        help="Директория для сохранения результата (по умолчанию: result/)",
-    )
-    parser.add_argument(
-        "-l", "--limit",
-        default=1,
-        help="Количество изображений для извлечения и обработки",
-    )
-
-    args = parser.parse_args()
-
-    processor = DogImageProcessor(api_key, args.output_dir, args.grey, args.limit)
-    processor.process_and_save()
+    df_gen = read_chunks(CSV_FILE, 100)
+    total_emission(df_gen).to_csv("test.csv")
 
 
 if __name__ == "__main__":
