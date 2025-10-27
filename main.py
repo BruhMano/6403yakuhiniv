@@ -12,11 +12,12 @@ import sys
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Generator
 
 CSV_FILE = 'global_emissions.csv'
 
 
-def read_chunks(filename: str, chunksize: int = 10000) -> pd.DataFrame:
+def read_chunks(filename: str, chunksize: int = 10000) -> Generator[pd.DataFrame, None, None]:
     """
     Читает CSV-файл порциями (чанками) для обработки больших данных.
     
@@ -31,7 +32,7 @@ def read_chunks(filename: str, chunksize: int = 10000) -> pd.DataFrame:
         yield chunk
 
 
-def emission_calculation(chunks: pd.DataFrame) -> pd.DataFrame:
+def emission_calculation(chunks: pd.DataFrame) -> Generator[pd.DataFrame, None, None]:
     """
     Вычисляет общие выбросы и выбросы на душу населения для каждого чанка.
     
@@ -69,18 +70,18 @@ def country_and_yearly_stats_factory(chunksize: int) -> tuple:
     agg_by_country = df.groupby("Country.Name").agg(list)
     agg_yearly = df.groupby("Year")[["Country.GDP", "Emission.Total"]].sum()
     
-    def country_generator():
+    def country_generator() -> Generator:
         """Создает генератор для данных, агрегированных по странам."""
         return (row for _, row in agg_by_country.iterrows())
     
-    def yearly_generator():
+    def yearly_generator() -> Generator:
         """Создает генератор для данных, агрегированных по годам."""
         return (row for _, row in agg_yearly.iterrows())
     
     return country_generator, yearly_generator
 
 
-def avg_emission_per_capita(agg_data: pd.DataFrame) -> tuple:
+def avg_emission_per_capita(agg_data: pd.DataFrame) -> Generator[tuple, None, None]:
     """
     Вычисляет средние выбросы на душу населения для каждой страны.
     
@@ -88,12 +89,12 @@ def avg_emission_per_capita(agg_data: pd.DataFrame) -> tuple:
         agg_data (pd.DataFrame): Агрегированные данные по странам
         
     Returns:
-        tuple: Генератор кортежей (название_страны, средние_выбросы_на_душу_населения)
+        Generator[tuple]: Генератор кортежей (название_страны, средние_выбросы_на_душу_населения)
     """
     return ((country.name, np.mean(country["Emission.Total.Per.Capita"])) for country in agg_data)
 
 
-def emission_stats(agg_data: pd.DataFrame) -> tuple:
+def emission_stats(agg_data: pd.DataFrame) -> Generator[tuple, None, None]:
     """
     Вычисляет статистику выбросов: стандартное отклонение и доверительный интервал.
     
@@ -101,7 +102,7 @@ def emission_stats(agg_data: pd.DataFrame) -> tuple:
         agg_data (pd.DataFrame): Агрегированные данные по странам
         
     Returns:
-        tuple: Генератор кортежей (название_страны, std_выбросов, доверительный_интервал)
+       Generator[tuple]: Генератор кортежей (название_страны, std_выбросов, доверительный_интервал)
     """
     return ((country.name, np.std(country["Emission.Total"]), 
              1.96 * np.std(country["Emission.Total"])/len(country["Emission.Total"])**0.5) 
