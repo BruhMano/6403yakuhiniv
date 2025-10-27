@@ -9,124 +9,117 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 CSV_FILE = 'global_emissions.csv'
-PARQUET_FILE = 'global_emissions.parquet'
 
 def read_chunks(filename, chunksize=10000):
     for chunk in pd.read_csv(filename, chunksize=chunksize):
         yield chunk
 
-def total_emission(chunks):
+def emission_calculation(chunks):
     gases = ['Emissions.Production.CO2.Total', 'Emissions.Production.CH4', 'Emissions.Production.N2O']
+    columns = ["Year", "Country.Name", "Country.GDP", "Emission.Total", "Emission.Total.Per.Capita"]
     for chunk in chunks:
         chunk['Emission.Total'] = chunk[gases].sum(axis = 1)
-        yield chunk
+        chunk['Emission.Total.Per.Capita'] = chunk['Emission.Total'] / chunk['Country.Population'] * 1e6
+        yield chunk[columns]
 
-def avg_emission_per_capita(chunks):
-    total = {}
-    count = {}
-    for chunk in chunks:
-        chunk['Emission.Total.Per.Capita'] = chunk['Emission.Total'] / chunk['Country.Population']
-        for _, row in chunk.iterrows():
-            country_name = row['Country.Name']
-            per_capita = row['Emission.Total.Per.Capita']
-            total[country_name] = total.get(country_name, 0) + per_capita
-            count[country_name] = count.get(country_name, 0) + 1
-    return ((country, total[country] / count[country] * 1e6) for country in total)
+def country_and_yearly_stats_factory(chunksize):
+    chunks_list = []
+    for chunk in emission_calculation(read_chunks(CSV_FILE, chunksize)):
+        chunks_list.append(chunk)
+    df = pd.concat(chunks_list, ignore_index=True)
+    agg_by_country = df.groupby("Country.Name").agg(list)
+    agg_yearly = df.groupby("Year")[["Country.GDP", "Emission.Total"]].sum()
+    
+    # Создаем фабрики генераторов вместо самих генераторов
+    def country_generator():
+        return (row for _, row in agg_by_country.iterrows())
+    
+    def yearly_generator():
+        return (row for _, row in agg_yearly.iterrows())
+    
+    return country_generator, yearly_generator
 
-def emission_list_per_country(chunks):
-    emission = {}
-    for chunk in chunks:
-        for _, row in chunk.iterrows():
-            country_name = row['Country.Name']
-            total = row['Emission.Total']
-            if country_name not in emission:
-                emission[country_name] = []
-            emission[country_name].append(total)
-    return ((key, val) for key, val in emission.items())
+def avg_emission_per_capita(agg_data):
+    return ((counntry.name, np.mean(counntry["Emission.Total.Per.Capita"])) for counntry in agg_data)
 
-def yearly_gdp_and_emission(chunks):
-    yearly = pd.DataFrame(columns = ["Year", "GDP", "Emission"])
-    yearly = yearly.set_index("Year")
-    for chunk in chunks:
-        for _, row in chunk.iterrows():
-            year = row["Year"]
-            gdp = row["Country.GDP"]
-            emission = row["Emission.Total"]
-            if year not in yearly.index:
-                yearly.loc[year] = [0,0]
-            yearly.loc[year] += [gdp, emission]
-    yearly_MA = yearly.join(yearly.rolling(3).mean().rename(columns={"GDP":"GDP_MA","Emission":"Emission_MA"}))
-    yearly_MA = yearly_MA.dropna()
-    return (new_row for _, new_row in yearly_MA.iterrows())
+def emission_stats(agg_data):
+    return ((country.name, np.std(country["Emission.Total"]), 
+             1.96 * np.std(country["Emission.Total"])/len(country["Emission.Total"])**0.5) 
+             for country in agg_data)
 
-def greenest_and_dirtiest(chunksize):
-    avg_per_capita = dict(avg_emission_per_capita(total_emission(read_chunks(CSV_FILE, chunksize))))
-    sorted_avg_per_capita = sorted(avg_per_capita.items(), key = lambda item: item[1])
+def greenest_and_dirtiest(agg_data):
+    avg_per_capita = list(avg_emission_per_capita(agg_data))
+    sorted_avg_per_capita = sorted(avg_per_capita, key = lambda item: item[1])
     greenest = sorted_avg_per_capita[:3]
     dirtiest = sorted_avg_per_capita[-3:][::-1]
     return greenest, dirtiest
 
-def emission_stats(data):
-    for country, emission in data:
-        if len(emission) < 2:
-            continue
-        arr = np.array(emission)
-        mean = arr.mean()
-        std = arr.std()
-        ci = 1.96 * std / np.sqrt(len(arr))
-        yield country, mean, std, ci
-
-def highest_and_lowest_emission_std(chunksize):
-    data = list(emission_stats(emission_list_per_country(total_emission(read_chunks(CSV_FILE, chunksize)))))
-    sorted_data = sorted(data, key = lambda item: item[2])
+def highest_and_lowest_emission_std(agg_data):
+    data = list(emission_stats(agg_data))
+    sorted_data = sorted(data, key = lambda item: item[1])
     lowest_std = sorted_data[:3]
     highest_std = sorted_data[-3:][::-1]
     return lowest_std, highest_std
 
+def yearly_gdp_and_emission(agg_data):
+    yearly = pd.DataFrame(agg_data)
+    yearly_with_MA = yearly.join(yearly.rolling(3).mean().rename(columns={"Country.GDP":"Country.GDP_MA","Emission.Total":"Emission_MA.Total"}))
+    yearly_with_MA = yearly_with_MA.dropna()
+    return yearly_with_MA
+
 def main():
-    greenest, dirtiest = greenest_and_dirtiest(100)
-    fig, axs = plt.subplots(2, 2, figsize=(14, 10))
+    country_factory, yearly_factory = country_and_yearly_stats_factory(1000)
+
+    country_gen1 = country_factory()
+    country_gen2 = country_factory()
+    yearly_gen = yearly_factory()
+
+    greenest, dirtiest = greenest_and_dirtiest(country_gen1)
+    least_std, most_std = highest_and_lowest_emission_std(country_gen2)
+    gdp_and_emission = yearly_gdp_and_emission(yearly_gen)
+
+    fig, axs = plt.subplots(2, 3, figsize=(16, 9))
+    fig.subplots_adjust(wspace=0.5,hspace=0.5)
 
     axs[0, 0].bar([c for c, _ in greenest], [v for _, v in greenest], color='green')
     axs[0, 0].set_title('3 самые «зелёные» страны')
-    axs[0, 0].set_xlabel('Выбросы на душу населения')
+    axs[0, 0].set_ylabel('Выбросы на душу населения (кг/чел)')
 
     axs[0, 1].bar([c for c, _ in dirtiest], [v for _, v in dirtiest], color='red')
     axs[0, 1].set_title('3 самые «грязные» страны')
-    axs[0, 1].set_xlabel('Выбросы на душу населения')
+    axs[0, 1].set_ylabel('Выбросы на душу населения (кг/чел)')
 
-    # Задание 2
-    least_var, most_var = highest_and_lowest_emission_std(100)
+    # # Задание 2
     axs[1, 0].bar(
-        [c[0] for c in least_var],
-        [v[2] for v in least_var],
-        yerr=[v[3] for v in least_var],
+        [c[0] for c in least_std],
+        [v[1] for v in least_std],
+        yerr=[v[2] for v in least_std],
         capsize=5, color='lightblue'
     )
     axs[1, 0].set_title('Наименьший разброс')
     axs[1, 0].set_ylabel('Стандартное отклонение')
 
     axs[1, 1].bar(
-        [c[0] for c in most_var],
-        [v[2] for v in most_var],
-        yerr=[v[3] for v in most_var],
+        [c[0] for c in most_std],
+        [v[1] for v in most_std],
+        yerr=[v[2] for v in most_std],
         capsize=5, color='lightblue'
     )
     axs[1, 1].set_title('Наибольший разброс')
     axs[1, 1].set_ylabel('Стандартное отклонение')
 
-    plt.show()
+    axs[0, 2].set_title('Динамика ВВП')
+    axs[0, 2].plot(gdp_and_emission.index, gdp_and_emission["Country.GDP"], color='blue', label='ВВП')
+    axs[0, 2].plot(gdp_and_emission.index, gdp_and_emission["Country.GDP_MA"], color='blue', linestyle = '--', label='ВВП (скользящее среднее)')
+    axs[0, 2].set_ylabel('ВВП')
+    axs[0, 2].legend(loc='upper left')
 
-    df = pd.DataFrame(yearly_gdp_and_emission(total_emission(read_chunks(CSV_FILE, 100))))
-    fig, axs = plt.subplots(2, figsize=(10, 6))
-    axs[0].set_title('Динамика ВВП')
-    axs[0].plot(df.index, df["GDP"], color='blue')
-    axs[0].plot(df.index, df["GDP_MA"], color='blue', linestyle = '--')
-    axs[0].set_ylabel('GDP')
-    axs[1].set_title('Динамика количества выбросов')
-    axs[1].plot(df.index, df["Emission"], color='red')
-    axs[1].plot(df.index, df["Emission_MA"], color='red', linestyle = '--')
-    axs[1].set_ylabel('Emissions')
+    axs[1, 2].set_title('Динамика количества выбросов')
+    axs[1, 2].plot(gdp_and_emission.index, gdp_and_emission["Emission.Total"], color='red', label='Выбросы')
+    axs[1, 2].plot(gdp_and_emission.index, gdp_and_emission["Emission_MA.Total"], color='red', linestyle = '--', label='Выбросы (скользящее среднее)')
+    axs[1, 2].set_ylabel('Выбросы')
+    axs[1, 2].legend(loc='upper left')
+
     plt.show()
 
 
