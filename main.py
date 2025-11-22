@@ -59,15 +59,20 @@ def country_agg(chunks: Generator[pd.DataFrame, None, None]) -> Generator[tuple,
     Returns:
         Generator: (country_name, list_of_emissions, list_of_emissions_per_capita)
     """
-    country_data = defaultdict(lambda: {'emissions': [], 'emissions_per_capita': []})
+    country_data = pd.DataFrame()
     for chunk in chunks:
-        for _, row in chunk.iterrows():
-            country = row['Country.Name']
-            country_data[country]['emissions'].append(row['Emission.Total'])
-            country_data[country]['emissions_per_capita'].append(row['Emission.Total.Per.Capita'])
-
-    for country, data in country_data.items():
-        yield country, data['emissions'], data['emissions_per_capita']
+        chunk["Emission.Total.Square"] = chunk["Emission.Total"]**2
+        chunk_grouped = chunk.groupby("Country.Name").agg({
+                                      "Emission.Total": ["sum", "count"], 
+                                      "Emission.Total.Per.Capita": ["sum"], 
+                                      "Emission.Total.Square": ["sum"]
+                                      })
+        if country_data.empty:
+            country_data = chunk_grouped
+        else:
+            country_data = pd.concat([country_data, chunk_grouped]).groupby(level=0).sum()
+    for country, data in country_data.iterrows():
+        yield country, data
 
 def yearly_agg(chunks: Generator[pd.DataFrame, None, None]) -> Generator[tuple, None, None]:
     """
@@ -76,17 +81,21 @@ def yearly_agg(chunks: Generator[pd.DataFrame, None, None]) -> Generator[tuple, 
     Returns:
         Generator: (year, total_gdp, total_emissions)
     """
-    yearly_data = defaultdict(lambda: {'gdp': 0.0, 'emissions': 0.0})
+    yearly_data = pd.DataFrame()
     
     for chunk in chunks:
-        for _, row in chunk.iterrows():
-            year = row['Year']
-            yearly_data[year]['gdp'] += row['Country.GDP']
-            yearly_data[year]['emissions'] += row['Emission.Total']
+        chunk_grouped = chunk.groupby("Year").agg({
+                                      "Emission.Total": ["sum"], 
+                                      "Country.GDP": ["sum"]
+                                      })
+        
+        if yearly_data.empty:
+            yearly_data = chunk_grouped
+        else:
+            yearly_data = pd.concat([yearly_data, chunk_grouped]).groupby(level=0).sum()
     
-    for year in sorted(yearly_data.keys()):
-        data = yearly_data[year]
-        yield year, data['gdp'], data['emissions']
+    for year, data in yearly_data.iterrows():
+        yield year, data
 
 def avg_emission_per_capita(country_data: Generator[tuple, None, None]) -> Generator[tuple, None, None]:
     """
@@ -98,7 +107,7 @@ def avg_emission_per_capita(country_data: Generator[tuple, None, None]) -> Gener
     Returns:
         Generator[tuple]: Генератор кортежей (название_страны, средние_выбросы_на_душу_населения)
     """
-    return ((country[0], np.mean(country[2])) for country in country_data)
+    return ((country, data["Emission.Total.Per.Capita"]["sum"]/data["Emission.Total"]["count"]) for country, data in country_data)
 
 
 def emission_stats(country_data: Generator[tuple, None, None]) -> Generator[tuple, None, None]:
@@ -111,9 +120,11 @@ def emission_stats(country_data: Generator[tuple, None, None]) -> Generator[tupl
     Returns:
        Generator[tuple]: Генератор кортежей (название_страны, mean_выбросов, var_выбросов, доверительный_интервал)
     """
-    return ((country[0], np.mean(country[1]), np.var(country[1]), 
-             1.96 * np.std(country[1])/len(country[1])**0.5) 
-             for country in country_data)
+    return ((country, data["Emission.Total"]["sum"]/data["Emission.Total"]["count"], 
+             data["Emission.Total.Square"]["sum"]/data["Emission.Total"]["count"] - (data["Emission.Total"]["sum"]/data["Emission.Total"]["count"])**2, 
+             1.96 * ((data["Emission.Total.Square"]["sum"]/data["Emission.Total"]["count"] -
+               (data["Emission.Total"]["sum"]/data["Emission.Total"]["count"])**2)/len(country[1]))**0.5) 
+             for country, data in country_data)
 
 
 def greenest_and_dirtiest(country_data: Generator[tuple, None, None]) -> tuple:
@@ -129,6 +140,7 @@ def greenest_and_dirtiest(country_data: Generator[tuple, None, None]) -> tuple:
             - dirtiest: список из 3 самых "грязных" стран
     """
     avg_per_capita = list(avg_emission_per_capita(country_data))
+    print(avg_per_capita)
     sorted_avg_per_capita = sorted(avg_per_capita, key=lambda item: item[1])
     greenest = sorted_avg_per_capita[:3]
     dirtiest = sorted_avg_per_capita[-3:][::-1]
@@ -170,9 +182,9 @@ def calculate_moving_average(yearly_data: Generator[tuple, None, None], window: 
     emissions_buffer = deque(maxlen=window)
     year_buffer = deque(maxlen=window)
     
-    for year, gdp, emissions in yearly_data:
-        gdp_buffer.append(gdp)
-        emissions_buffer.append(emissions)
+    for year, data in yearly_data:
+        gdp_buffer.append(data["Country.GDP"]['sum'])
+        emissions_buffer.append(data["Emission.Total"]['sum'])
         year_buffer.append(year)
         
         if len(gdp_buffer) == window:
@@ -180,7 +192,7 @@ def calculate_moving_average(yearly_data: Generator[tuple, None, None], window: 
             gdp_ma = sum(gdp_buffer) / window
             emissions_ma = sum(emissions_buffer) / window
             
-            result.append((current_year, gdp, emissions, gdp_ma, emissions_ma))
+            result.append((current_year, data["Country.GDP"]['sum'], data["Emission.Total"]['sum'], gdp_ma, emissions_ma))
     
     return result
 
