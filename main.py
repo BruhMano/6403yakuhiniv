@@ -29,9 +29,10 @@ main.py
 import argparse
 from dotenv import load_dotenv
 from implementation import DogImageProcessor
+import asyncio
 from os import getenv
 
-def main() -> None:
+async def main() -> None:
     load_dotenv()
     api_key = getenv('API_KEY')
 
@@ -58,8 +59,8 @@ def main() -> None:
     args = parser.parse_args()
 
     processor = DogImageProcessor(api_key, args.output_dir, args.grey, args.limit)
-    processor.process_and_save()
+    await processor.process_and_save()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
