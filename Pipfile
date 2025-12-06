@@ -5,6 +5,9 @@ name = "pypi"
 
 [packages]
 numpy = "*"
+scikit-learn = "*"
+jupyter = "*"
+ipykernel = "*"
 matplotlib = "*"
 flake8 = "*"
 flake8-builtins = "*"

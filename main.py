@@ -10,10 +10,8 @@ main.py
 
 import sys
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from typing import Generator
-from collections import defaultdict, deque
 
 CSV_FILE = 'global_emissions.csv'
 
@@ -49,10 +47,10 @@ def emission_calculation(chunks: Generator[pd.DataFrame, None, None]) -> Generat
     for chunk in chunks:
         chunk['Emission.Total'] = chunk[gases].sum(axis=1)
         chunk['Emission.Total.Per.Capita'] = chunk['Emission.Total'] / chunk['Country.Population'] * 1e6
-        yield chunk[columns]
+        yield chunk[columns].copy()
 
 
-def country_agg(chunks: Generator[pd.DataFrame, None, None]) -> Generator[tuple, None, None]:
+def country_agg(chunks: Generator[pd.DataFrame, None, None]) -> pd.DataFrame:
     """
     Агрегирует данные о выбросах по странам.
     
@@ -70,11 +68,12 @@ def country_agg(chunks: Generator[pd.DataFrame, None, None]) -> Generator[tuple,
         if country_data.empty:
             country_data = chunk_grouped
         else:
-            country_data = pd.concat([country_data, chunk_grouped]).groupby(level=0).sum()
-    for country, data in country_data.iterrows():
-        yield country, data
+            #country_data = pd.concat([country_data, chunk_grouped]).groupby(level=0).sum()
+            country_data = country_data.add(chunk_grouped, fill_value=0)
 
-def yearly_agg(chunks: Generator[pd.DataFrame, None, None]) -> Generator[tuple, None, None]:
+    return country_data 
+
+def yearly_agg(chunks: Generator[pd.DataFrame, None, None]) -> pd.DataFrame:
     """
     Агрегирует данные о выбросах по годам.
     
@@ -94,23 +93,23 @@ def yearly_agg(chunks: Generator[pd.DataFrame, None, None]) -> Generator[tuple, 
         else:
             yearly_data = pd.concat([yearly_data, chunk_grouped]).groupby(level=0).sum()
     
-    for year, data in yearly_data.iterrows():
-        yield year, data
+    return yearly_data
 
-def avg_emission_per_capita(country_data: Generator[tuple, None, None]) -> Generator[tuple, None, None]:
+def avg_emission_per_capita(country_data: pd.DataFrame) -> pd.DataFrame:
     """
-    Вычисляет средние выбросы на душу населения для каждой страны.
+    Вычисляет средние выбросы на душу населения для каждой страны и добавляет к данным.
     
     Args:
         country_data: Агрегированные данные по странам
         
     Returns:
-        Generator[tuple]: Генератор кортежей (название_страны, средние_выбросы_на_душу_населения)
+        pd.DataFrame: данные с средним значением
     """
-    return ((country, data["Emission.Total.Per.Capita"]["sum"]/data["Emission.Total"]["count"]) for country, data in country_data)
+    country_data["Emission.Total.Per.Capita.Mean"] = country_data["Emission.Total.Per.Capita"]['sum'] / country_data["Emission.Total"]['count']
+    return country_data
 
 
-def emission_stats(country_data: Generator[tuple, None, None]) -> Generator[tuple, None, None]:
+def emission_stats(country_data: pd.DataFrame) -> pd.DataFrame:
     """
     Вычисляет статистику выбросов: стандартное отклонение и доверительный интервал.
     
@@ -120,14 +119,14 @@ def emission_stats(country_data: Generator[tuple, None, None]) -> Generator[tupl
     Returns:
        Generator[tuple]: Генератор кортежей (название_страны, mean_выбросов, var_выбросов, доверительный_интервал)
     """
-    return ((country, data["Emission.Total"]["sum"]/data["Emission.Total"]["count"], 
-             data["Emission.Total.Square"]["sum"]/data["Emission.Total"]["count"] - (data["Emission.Total"]["sum"]/data["Emission.Total"]["count"])**2, 
-             1.96 * ((data["Emission.Total.Square"]["sum"]/data["Emission.Total"]["count"] -
-               (data["Emission.Total"]["sum"]/data["Emission.Total"]["count"])**2)/len(country[1]))**0.5) 
-             for country, data in country_data)
+    country_data["Emission.Total.Mean"] = country_data["Emission.Total"]["sum"] / country_data["Emission.Total"]['count']
+    country_data["Emission.Total.Var"] = country_data["Emission.Total.Square"]['sum'] / country_data["Emission.Total"]['count'] - country_data["Emission.Total.Mean"]**2
+    country_data["Emission.Total.Ci"] = (country_data['Emission.Total.Var']/ country_data["Emission.Total"]['count'])**0.5 * 1.96
+    return country_data
 
 
-def greenest_and_dirtiest(country_data: Generator[tuple, None, None]) -> tuple:
+
+def greenest_and_dirtiest(country_data: pd.DataFrame) -> tuple:
     """
     Находит 3 самые "зеленые" и 3 самые "грязные" страны по выбросам на душу населения.
     
@@ -139,15 +138,13 @@ def greenest_and_dirtiest(country_data: Generator[tuple, None, None]) -> tuple:
             - greenest: список из 3 самых "зеленых" стран
             - dirtiest: список из 3 самых "грязных" стран
     """
-    avg_per_capita = list(avg_emission_per_capita(country_data))
-    print(avg_per_capita)
-    sorted_avg_per_capita = sorted(avg_per_capita, key=lambda item: item[1])
-    greenest = sorted_avg_per_capita[:3]
-    dirtiest = sorted_avg_per_capita[-3:][::-1]
+    country_data = country_data.sort_values("Emission.Total.Per.Capita.Mean")
+    greenest = country_data.head(3)
+    dirtiest = country_data.tail(3)
     return greenest, dirtiest
 
 
-def highest_and_lowest_emission_var(country_data: Generator[tuple, None, None]) -> tuple:
+def highest_and_lowest_emission_var(country_data: pd.DataFrame) -> tuple:
     """
     Находит страны с наибольшим и наименьшим разбросом выбросов.
     
@@ -159,13 +156,12 @@ def highest_and_lowest_emission_var(country_data: Generator[tuple, None, None]) 
             - lowest_std: 3 страны с наименьшим стандартным отклонением
             - highest_std: 3 страны с наибольшим стандартным отклонением
     """
-    data = list(emission_stats(country_data))
-    sorted_data = sorted(data, key=lambda item: item[2])
-    lowest_var = sorted_data[:3]
-    highest_var = sorted_data[-3:][::-1]
+    sorted_data = country_data.sort_values("Emission.Total.Var")
+    lowest_var = sorted_data.head(3)
+    highest_var = sorted_data.tail(3)
     return lowest_var, highest_var
 
-def calculate_moving_average(yearly_data: Generator[tuple, None, None], window: int = 3) -> list[tuple]:
+def calculate_moving_average(yearly_data: pd.DataFrame, window = 3) -> pd.DataFrame:
     """
     Вычисляет скользящее среднее для годовых данных.
     
@@ -176,25 +172,8 @@ def calculate_moving_average(yearly_data: Generator[tuple, None, None], window: 
     Returns:
         List: Кортежи (year, gdp, emissions, gdp_ma, emissions_ma)
     """
-    result = []
-
-    gdp_buffer = deque(maxlen=window)
-    emissions_buffer = deque(maxlen=window)
-    year_buffer = deque(maxlen=window)
-    
-    for year, data in yearly_data:
-        gdp_buffer.append(data["Country.GDP"]['sum'])
-        emissions_buffer.append(data["Emission.Total"]['sum'])
-        year_buffer.append(year)
-        
-        if len(gdp_buffer) == window:
-            current_year = year_buffer[-1]
-            gdp_ma = sum(gdp_buffer) / window
-            emissions_ma = sum(emissions_buffer) / window
-            
-            result.append((current_year, data["Country.GDP"]['sum'], data["Emission.Total"]['sum'], gdp_ma, emissions_ma))
-    
-    return result
+    yearly_data[['Country.GDP.MA', 'Emission.Total.MA']] = yearly_data[['Country.GDP', 'Emission.Total']].rolling(window).mean()
+    return yearly_data
 
 
 def main(chunksize: int) -> None:
@@ -213,27 +192,27 @@ def main(chunksize: int) -> None:
         chunksize (int): Размер чанка для обработки данных
     """
 
-    greenest, dirtiest = greenest_and_dirtiest(country_agg(emission_calculation(read_chunks("global_emissions.csv" ,chunksize))))
-    least_var, most_var = highest_and_lowest_emission_var(country_agg(emission_calculation(read_chunks("global_emissions.csv" ,chunksize))))
+    greenest, dirtiest = greenest_and_dirtiest(avg_emission_per_capita(country_agg(emission_calculation(read_chunks("global_emissions.csv" ,chunksize)))))
+    least_var, most_var = highest_and_lowest_emission_var(emission_stats(country_agg(emission_calculation(read_chunks("global_emissions.csv" ,chunksize)))))
     gdp_and_emission = calculate_moving_average(yearly_agg(emission_calculation(read_chunks("global_emissions.csv" ,chunksize))))
     fig, axs = plt.subplots(2, 3, figsize=(16, 9))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
 
     # График 1: Самые "зеленые" страны
-    axs[0, 0].bar([c for c, _ in greenest], [v for _, v in greenest], color='green')
+    axs[0, 0].bar(greenest.index, greenest["Emission.Total.Per.Capita.Mean"], color='green')
     axs[0, 0].set_title('3 самые «зелёные» страны')
     axs[0, 0].set_ylabel('Выбросы на душу населения (кг/чел)')
 
     # График 2: Самые "грязные" страны
-    axs[1, 0].bar([c for c, _ in dirtiest], [v for _, v in dirtiest], color='red')
+    axs[1, 0].bar(dirtiest.index, dirtiest["Emission.Total.Per.Capita.Mean"], color='red')
     axs[1, 0].set_title('3 самые «грязные» страны')
     axs[1, 0].set_ylabel('Выбросы на душу населения (кг/чел)')
 
     # График 3: Страны с наименьшим разбросом выбросов
     axs[0, 1].bar(
-        [c[0] for c in least_var],
-        [v[1] for v in least_var],
-        yerr=[v[3] for v in least_var],
+        least_var.index,
+        least_var["Emission.Total.Mean"],
+        yerr=least_var["Emission.Total.Ci"],
         capsize=5, color='lightblue'
     )
     axs[0, 1].set_title('Наименьший разброс')
@@ -241,9 +220,9 @@ def main(chunksize: int) -> None:
 
     # График 4: Страны с наибольшим разбросом выбросов
     axs[1, 1].bar(
-        [c[0] for c in most_var],
-        [v[1] for v in most_var],
-        yerr=[v[3] for v in most_var],
+        most_var.index,
+        most_var["Emission.Total.Mean"],
+        yerr=most_var["Emission.Total.Ci"],
         capsize=5, color='lightblue'
     )
     axs[1, 1].set_title('Наибольший разброс')
@@ -251,22 +230,22 @@ def main(chunksize: int) -> None:
 
     # График 5: Динамика ВВП
     axs[0, 2].set_title('Динамика ВВП')
-    axs[0, 2].plot([y[0] for y in gdp_and_emission],
-                   [g[1] for g in gdp_and_emission], 
+    axs[0, 2].plot(gdp_and_emission.index,
+                   gdp_and_emission["Country.GDP"], 
                    color='blue', label='ВВП')
-    axs[0, 2].plot([y[0] for y in gdp_and_emission],
-                   [g[3] for g in gdp_and_emission],
+    axs[0, 2].plot(gdp_and_emission.index,
+                   gdp_and_emission["Country.GDP.MA"],
                    color='blue', linestyle='--', label='ВВП (скользящее среднее)')
     axs[0, 2].set_ylabel('ВВП')
     axs[0, 2].legend(loc='upper left')
 
     # График 6: Динамика выбросов
     axs[1, 2].set_title('Динамика количества выбросов')
-    axs[1, 2].plot([y[0] for y in gdp_and_emission],
-                   [e[2] for e in gdp_and_emission], 
+    axs[1, 2].plot(gdp_and_emission.index,
+                   gdp_and_emission["Emission.Total"],
                    color='red', label='Выбросы')
-    axs[1, 2].plot([y[0] for y in gdp_and_emission],
-                   [e[4] for e in gdp_and_emission], 
+    axs[1, 2].plot(gdp_and_emission.index,
+                   gdp_and_emission["Emission.Total.MA"],
                    color='red', linestyle='--', label='Выбросы (скользящее среднее)')
     axs[1, 2].set_ylabel('Выбросы')
     axs[1, 2].legend(loc='upper left')
