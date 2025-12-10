@@ -1,6 +1,7 @@
 .venv/
-results/
+res/
 __pycache__/
 .flake8
 .env
 .vscode/
+test_images/

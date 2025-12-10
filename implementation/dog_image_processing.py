@@ -15,22 +15,6 @@ import multiprocessing
 from functools import wraps
 from datetime import datetime
 
-
-def time_logger(func):
-    """
-    Декоратор для измерения времени выполнения метода и логирования.
-    """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start = time.time()
-        print(f"[LOG] Начало выполнения {func.__name__}")
-        result = func(*args, **kwargs)
-        end = time.time()
-        print(f"[LOG] Завершено {func.__name__} за {end - start:.2f} сек.")
-        return result
-    return wrapper
-
-
 def async_time_logger(func):
     """
     Декоратор для измерения времени выполнения асинхронного метода.
@@ -111,7 +95,7 @@ class DogImageProcessor:
         print(f"[DOWNLOAD] Downloading image {idx} started at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
         
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status == 200:
                     # Читаем данные асинхронно
                     img_data = await response.read()
@@ -155,22 +139,15 @@ class DogImageProcessor:
         downloaded_images = []
         
         async with aiohttp.ClientSession() as session:
-            # Создаем семафор для ограничения количества одновременных запросов
-            semaphore = asyncio.Semaphore(self._max_concurrent_downloads)
-            
-            async def download_with_semaphore(idx: int, breed: str, url: str):
-                async with semaphore:
-                    return await self._download_single_image(session, idx, breed, url)
-            
-            # Запускаем все задачи загрузки
-            tasks = [
-                download_with_semaphore(idx, breed, url)
-                for idx, breed, url in self._image_data
-            ]
+            tasks = []
+            for idx, breed, url in self._image_data:
+                task = asyncio.create_task(
+                    self._download_single_image(session, idx, breed, url)
+                )
+                tasks.append(task)
             
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # Обрабатываем результаты
             for result in results:
                 if isinstance(result, Exception):
                     print(f"[ERROR] Exception during download: {result}")
@@ -182,7 +159,7 @@ class DogImageProcessor:
         return downloaded_images
 
     def _process_single_image_sync(self, idx: int, img_array: np.ndarray, 
-                                  breed: str, processor_pid: int) -> List[Tuple[str, np.ndarray]]:
+                                  breed: str) -> List[Tuple[str, np.ndarray]]:
         """
         Синхронная обработка одного изображения.
         
@@ -196,7 +173,8 @@ class DogImageProcessor:
             Список кортежей (суффикс, изображение).
         """
         results = []
-        
+        processor_pid = os.getpid()
+
         # Создаем объект DogImage
         start_time = time.time()
         print(f"[PROCESS] Processing for image {idx} started (PID {processor_pid}) "
@@ -238,7 +216,6 @@ class DogImageProcessor:
         if not downloaded_images:
             return []
         
-        processor_pid = os.getpid()
         all_results = []
         
         # Используем ProcessPoolExecutor вместо ThreadPoolExecutor для CPU-bound операций
@@ -252,7 +229,7 @@ class DogImageProcessor:
                 task = loop.run_in_executor(
                     executor, 
                     self._process_single_image_sync, 
-                    idx, img_array, breed, processor_pid
+                    idx, img_array, breed
                 )
                 tasks.append(task)
             
