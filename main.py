@@ -31,10 +31,14 @@ from dotenv import load_dotenv
 from implementation import DogImageProcessor
 import asyncio
 from os import getenv
+from log_conf import setup_logging
 
 async def main() -> None:
     load_dotenv()
     api_key = getenv('API_KEY')
+
+    logger = setup_logging(log_file="logs/app.log")
+    logger.info("Запуск приложения Dog Image Processor")
 
     parser = argparse.ArgumentParser(
         description="Обработка изображений собак с помощью классов DogImage и DogImageProcessor (Manual & OpenCV).",
@@ -58,8 +62,18 @@ async def main() -> None:
 
     args = parser.parse_args()
 
-    processor = DogImageProcessor(api_key, args.output_dir, args.grey, args.limit)
-    await processor.process_and_save()
+    try:
+        # Создаем и запускаем процессор
+        processor = DogImageProcessor(api_key, args.output_dir, args.grey, args.limit)
+        await processor.process_and_save()
+        
+        logger.info("Приложение успешно завершило работу")
+        
+    except KeyboardInterrupt:
+        logger.info("Приложение прервано пользователем")
+    except Exception as e:
+        logger.critical(f"Критическая ошибка в основном потоке: {str(e)}", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":

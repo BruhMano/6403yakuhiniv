@@ -14,6 +14,9 @@ from implementation import ImageProcessing, Cv2ImageProcessing
 import multiprocessing
 from functools import wraps
 from datetime import datetime
+from logging import getLogger
+
+logger = getLogger('DogImageProcessor')
 
 def async_time_logger(func):
     """
@@ -22,10 +25,10 @@ def async_time_logger(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
         start = time.time()
-        print(f"[LOG] Начало выполнения {func.__name__}")
+        logger.debug(f"Начало выполнения {func.__name__}")
         result = await func(*args, **kwargs)
         end = time.time()
-        print(f"[LOG] Завершено {func.__name__} за {end - start:.2f} сек.")
+        logger.debug(f"Завершено {func.__name__} за {end - start:.2f} сек.")
         return result
     return wrapper
 
@@ -72,6 +75,8 @@ class DogImageProcessor:
         """
         headers = {"x-api-key": self._api_key}
         params = {"limit": self.limit, "has_breeds": 1}
+
+        logger.debug("Начало получения URL изображений из API")
         
         async with aiohttp.ClientSession() as session:
             async with session.get(self.API_URL, headers=headers, params=params) as response:
@@ -84,45 +89,38 @@ class DogImageProcessor:
                     breed = item["breeds"][0]["name"].lower().replace(" ", "_") if item["breeds"] else "unknown"
                     self._image_data.append((idx, breed, url))
                     
-        print(f"[INFO] Получено {len(self._image_data)} URL изображений")
+        logger.info(f"Получено {len(self._image_data)} URL изображений")
 
     async def _download_single_image(self, session: aiohttp.ClientSession, 
                                 idx: int, breed: str, url: str) -> Optional[Tuple[int, np.ndarray, str]]:
         """
         Загружает одно изображение асинхронно.
         """
+
         start_time = time.time()
-        print(f"[DOWNLOAD] Downloading image {idx} started at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+        logger.debug(f"Загрузка изображения №{idx} началась")
         
-        try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    # Читаем данные асинхронно
-                    img_data = await response.read()
-                    
-                    # Используем run_in_executor для CPU-bound операции
-                    loop = asyncio.get_event_loop()
-                    image = await loop.run_in_executor(
-                        None,  # Используем стандартный ThreadPoolExecutor
-                        self._process_image_data,
-                        img_data
-                    )
-                    image_array = np.array(image)
-                    
-                    end_time = time.time()
-                    print(f"[DOWNLOAD] Downloading image {idx} finished in {end_time - start_time:.2f} сек. "
-                        f"({datetime.now().strftime('%H:%M:%S.%f')[:-3]})")
-                    
-                    return (idx, image_array, breed)
-                else:
-                    print(f"[ERROR] Failed to download image {idx}, status: {response.status}")
-                    return None
-        except asyncio.TimeoutError:
-            print(f"[ERROR] Timeout downloading image {idx}")
-            return None
-        except Exception as e:
-            print(f"[ERROR] Error downloading image {idx}: {str(e)}")
-            return None
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            if response.status == 200:
+                # Читаем данные асинхронно
+                img_data = await response.read()
+                
+                # Используем run_in_executor для блокирующей операции
+                loop = asyncio.get_event_loop()
+                image = await loop.run_in_executor(
+                    None,  # Используем стандартный ThreadPoolExecutor
+                    self._process_image_data,
+                    img_data
+                )
+                image_array = np.array(image)
+                
+                end_time = time.time()
+                logger.debug(f"Загрузка изображения №{idx} завершилась за {end_time - start_time:.2f} сек. ")
+                
+                return (idx, image_array, breed)
+            else:
+                logger.error(f"Изображение №{idx} не было загружено, статус: {response.status}")
+                return None
 
     def _process_image_data(self, img_data: bytes) -> Image.Image:
         """Синхронный метод для обработки изображений в executor."""
@@ -131,12 +129,14 @@ class DogImageProcessor:
     @async_time_logger
     async def _download_images(self) -> List[Tuple[int, np.ndarray, str]]:
         """
-        Асинхронно загружает все изображения с ограничением на количество одновременных запросов.
+        Асинхронно загружает все изображения.
         """
         if not self._image_data:
             await self._fetch_image_urls()
             
         downloaded_images = []
+
+        logger.debug(f"Начало загрузки {len(self._image_data)} изображений")
         
         async with aiohttp.ClientSession() as session:
             tasks = []
@@ -150,12 +150,14 @@ class DogImageProcessor:
             
             for result in results:
                 if isinstance(result, Exception):
-                    print(f"[ERROR] Exception during download: {result}")
+                    logger.error(f"Ошибка во время загрузки: {result}")
                 elif result is not None:
                     downloaded_images.append(result)
         
         # Сортируем по индексу для сохранения порядка
         downloaded_images.sort(key=lambda x: x[0])
+        logger.info(f"Успешно загружено {len(downloaded_images)} изображений")
+
         return downloaded_images
 
     def _process_single_image_sync(self, idx: int, img_array: np.ndarray, 
@@ -173,12 +175,11 @@ class DogImageProcessor:
             Список кортежей (суффикс, изображение).
         """
         results = []
-        processor_pid = os.getpid()
+        process_pid = os.getpid()
 
         # Создаем объект DogImage
         start_time = time.time()
-        print(f"[PROCESS] Processing for image {idx} started (PID {processor_pid}) "
-              f"at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+        logger.debug(f"Начало обработки изображения №{idx} в процессе с PID={process_pid}")
         
         dog: DogImage = (
             ColorDogImage(img_array, breed, "", ImageProcessing())
@@ -190,37 +191,41 @@ class DogImageProcessor:
         results.append(("original", dog.image.copy()))
         
         # Модифицируем своими методами
-        print(f"[PROCESS] Convolution for image {idx} started (PID {processor_pid})")
+        logger.debug(f"Вычисление границ кастомными методами для изображения №{idx} началось (PID {process_pid})")
         edges = GrayscaleDogImage(dog.edges(), dog.breed, dog.url, dog.processor)
         new_image = dog + edges
         results.append(("with_edges", new_image.image.copy()))
         
         # Модифицируем методом cv2
-        print(f"[PROCESS] OpenCV processing for image {idx} started (PID {processor_pid})")
+        logger.debug(f"Вычисление границ методами OpenCV для изображения №{idx} началось (PID {process_pid})")
         dog.processor = Cv2ImageProcessing()
         edges.image = dog.edges()
         new_image = dog + edges
         results.append(("with_edges_cv2", new_image.image.copy()))
         
         end_time = time.time()
-        print(f"[PROCESS] Processing for image {idx} finished in {end_time - start_time:.2f} сек. "
-              f"(PID {processor_pid})")
+        logger.debug(f"Обработка изображения №{idx} завершена за {end_time - start_time:.2f} сек. (PID {process_pid})")
         
         return [(f"{idx}_{breed}_{suffix}.png", img) for suffix, img in results]
 
     @async_time_logger
-    async def _process_images(self, downloaded_images: List[Tuple[int, np.ndarray, str]]) -> List[Tuple[str, np.ndarray]]:
+    async def _process_images(self, downloaded_images: List[Tuple[int, np.ndarray, str]]) -> List:
         """
         Асинхронная обработка изображений.
         """
         if not downloaded_images:
+            logger.warning("Нет изображений для обработки")
             return []
         
         all_results = []
-        
-        # Используем ProcessPoolExecutor вместо ThreadPoolExecutor для CPU-bound операций
+
+        # Используем ProcessPoolExecutor для CPU-bound операций
         with concurrent.futures.ProcessPoolExecutor(max_workers=min(multiprocessing.cpu_count(), len(downloaded_images))) as executor:
             loop = asyncio.get_event_loop()
+            
+            logger.debug(f"Начало обработки {len(downloaded_images)} изображений в параллельных процессах")
+            logger.debug(f"PID основного процесса: {os.getpid()}")
+            logger.debug(f"Количество яред CPU: {multiprocessing.cpu_count()}")
             
             # Подготавливаем задачи для асинхронного выполнения
             tasks = []
@@ -235,16 +240,16 @@ class DogImageProcessor:
             
             # Ждем завершения всех задач
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # Обрабатываем результаты
-            for idx, result in zip(range(len(downloaded_images)), results):
+            for idx, result in enumerate(results):
                 if isinstance(result, Exception):
-                    print(f"[ERROR] Error processing image {idx}: {str(result)}")
+                    logger.error(f"Ошибка при обработке изображения №{idx}: {str(result)}")
                 else:
+                    logger.debug(f"Обработка изображения №{idx} завершена")
                     all_results.extend(result)
-                    print(f"[PROCESS] Image {idx} processing completed")
-        
-        return all_results
+            logger.info(f"Успешно обработано {len(downloaded_images)} изображений")
+            return all_results
 
     async def _save_single_image(self, filename: str, img_array: np.ndarray) -> None:
         """
@@ -266,9 +271,9 @@ class DogImageProcessor:
             # Асинхронно записываем закодированные данные
             async with aiofiles.open(filepath, 'wb') as f:
                 await f.write(encoded_image.tobytes())
-            print(f"[SAVE] Saved {filename}")
+            logger.debug(f"Изображение сохранено в файле {filename}")
         else:
-            print(f"[ERROR] Failed to encode image {filename}")
+            logger.error(f"Ошибка при кодировании изображения {filename}")
 
     @async_time_logger
     async def _save_all_images(self, images_to_save: List[Tuple[str, np.ndarray]]) -> None:
@@ -276,8 +281,10 @@ class DogImageProcessor:
         Асинхронно сохраняет все изображения.
         """
         if not images_to_save:
+            logger.warning("Нет изображений для сохранения")
             return
-            
+        
+        logger.debug(f"Начало сохранения {len(images_to_save)} изображений")
         # Создаем задачи для асинхронного сохранения
         tasks = []
         for filename, img_array in images_to_save:
@@ -287,6 +294,8 @@ class DogImageProcessor:
         # Ждем завершения всех задач сохранения
         await asyncio.gather(*tasks, return_exceptions=True)
 
+        logger.info(f"Успешно сохранено {len(images_to_save)} изображений")
+
     @async_time_logger
     async def process_and_save(self) -> None:
         """
@@ -294,50 +303,39 @@ class DogImageProcessor:
         """
         total_start_time = time.time()
         
-        print("=" * 50)
-        print(f"Starting async processing of {self._limit} images")
-        print(f"Max concurrent downloads: {self._max_concurrent_downloads}")
-        print(f"Output directory: {self._output_dir}")
-        print("=" * 50)
+        logger.info(f"Запуск обработки {self._limit} изображений")
+        logger.info(f"Выходная директория: {self._output_dir}")
         
         try:
             # 1. Получаем URL изображений
-            print("\n[STEP 1] Fetching image URLs...")
+            logger.info("Шаг 1: Получение URL изображений...")
             await self._fetch_image_urls()
             
             # 2. Асинхронно загружаем изображения
-            print(f"\n[STEP 2] Downloading {len(self._image_data)} images asynchronously...")
+            logger.info(f"Шаг 2: Загрузка {len(self._image_data)} изображений...")
             downloaded_images = await self._download_images()
             
             if not downloaded_images:
-                print("[WARNING] No images downloaded, exiting...")
+                logger.warning("Нет загруженных изображений, завершение...")
                 return
             
             # 3. Параллельно обрабатываем изображения
-            print(f"\n[STEP 3] Processing {len(downloaded_images)} images in parallel...")
+            logger.info(f"Шаг 3: Обработка {len(downloaded_images)} изображений...")
             images_to_save = await self._process_images(downloaded_images)
             
             if not images_to_save:
-                print("[WARNING] No images processed, exiting...")
+                logger.warning("Нет обработанных изображений, завершение...")
                 return
             
             # 4. Асинхронно сохраняем все изображения
-            print(f"\n[STEP 4] Saving {len(images_to_save)} images asynchronously...")
+            logger.info(f"Шаг 4: Сохранение {len(images_to_save)} изображений...")
             await self._save_all_images(images_to_save)
             
         except Exception as e:
-            print(f"[CRITICAL ERROR] Processing failed: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.critical(f"Критическая ошибка при обработке: {str(e)}", exc_info=True)
         finally:
             total_end_time = time.time()
             total_time = total_end_time - total_start_time
             
-            print("\n" + "=" * 50)
-            print(f"Processing completed!")
-            print(f"Total time: {total_time:.2f} секунд")
-            print(f"Images processed: {len(downloaded_images) if 'downloaded_images' in locals() else 0}")
-            print(f"Files saved: {len(images_to_save) if 'images_to_save' in locals() else 0}")
-            if 'downloaded_images' in locals() and downloaded_images:
-                print(f"Average time per image: {total_time / len(downloaded_images):.2f} секунд")
-            print("=" * 50)
+            logger.info("Обработка завершена!")
+            logger.info(f"Общее время: {total_time:.2f} секунд")

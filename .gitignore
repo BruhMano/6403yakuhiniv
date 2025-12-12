@@ -1,5 +1,6 @@
 .venv/
 res/
+logs/
 __pycache__/
 .flake8
 .env

@@ -98,7 +98,10 @@ class Cv2ImageProcessing(interfaces.IImageProcessing):
         Returns:
             np.ndarray: Одноканальное изображение с выделенными границами.
         """
-        gray = self._rgb_to_grayscale(image)
+        if image.ndim == 3:
+            gray = self._rgb_to_grayscale(image)
+        else:
+            gray = image
         edges = cv2.Canny(gray, 100, 200)
         return edges
 
