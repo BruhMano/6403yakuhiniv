@@ -12,7 +12,7 @@ def run_all_tests():
     start_dir = os.path.join(os.path.dirname(__file__), 'tests')
     
     # Загружаем тесты
-    suite = loader.discover(start_dir, pattern='test_*.py')
+    suite = loader.discover(start_dir)
     
     # Запускаем тесты
     runner = unittest.TextTestRunner(verbosity=2)
