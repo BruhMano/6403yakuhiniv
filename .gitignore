@@ -1,6 +1,8 @@
 .venv/
 res/
 logs/
+dist/
+dog_image_processor.egg-info/
 __pycache__/
 .flake8
 .env

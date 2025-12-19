@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dog_image_processor"
+version = "1.0.0"
+description = "Асинхронный процессор изображений собак"
+requires-python = ">=3.8"
+dependencies = [
+    "aiohttp",
+    "aiofiles",
+    "opencv-python",
+    "Pillow",
+    "numpy",
+    "dotenv",
+    "numba",
+]
+
+[project.scripts]
+dog-processor = "main:main"
+
+[tool.setuptools]
+packages = ["implementation", "interfaces"]
+py-modules = ["main", "log_conf"]

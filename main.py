@@ -33,7 +33,7 @@ import asyncio
 from os import getenv
 from log_conf import setup_logging
 
-async def main() -> None:
+async def async_main() -> None:
     load_dotenv()
     api_key = getenv('API_KEY')
 
@@ -76,5 +76,8 @@ async def main() -> None:
         raise
 
 
+def main():
+    asyncio.run(async_main())
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
