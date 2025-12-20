@@ -9,11 +9,11 @@ from PIL import Image
 from io import BytesIO
 import numpy as np
 import concurrent.futures
-from implementation.dog_image import DogImage, ColorDogImage, GrayscaleDogImage
-from implementation import ImageProcessing, Cv2ImageProcessing
+from .dog_image import ColorDogImage, GrayscaleDogImage
+from .image_processing import ImageProcessing
+from .cv2_image_processing import Cv2ImageProcessing
 import multiprocessing
 from functools import wraps
-from datetime import datetime
 from logging import getLogger
 
 logger = getLogger('DogImageProcessor')
@@ -181,7 +181,7 @@ class DogImageProcessor:
         start_time = time.time()
         logger.debug(f"Начало обработки изображения №{idx} в процессе с PID={process_pid}")
         
-        dog: DogImage = (
+        dog = (
             ColorDogImage(img_array, breed, "", ImageProcessing())
             if not self._grey
             else GrayscaleDogImage(img_array, breed, "", ImageProcessing())

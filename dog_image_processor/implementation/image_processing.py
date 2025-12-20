@@ -15,12 +15,12 @@
 (лабораторная работа по курсу "Технологии программирования на Python").
 """
 import cv2
-import interfaces
+from dog_image_processor.interfaces import IImageProcessing
 import numpy as np
 from numba import njit
 
 
-class ImageProcessing(interfaces.IImageProcessing):
+class ImageProcessing(IImageProcessing):
     """
     Реализация интерфейса IImageProcessing с использованием библиотеки OpenCV.
 

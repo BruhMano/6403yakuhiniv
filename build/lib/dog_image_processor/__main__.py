@@ -31,13 +31,13 @@ from dotenv import load_dotenv
 from dog_image_processor.implementation import DogImageProcessor
 import asyncio
 from os import getenv
-from logging import getLogger
+from log_conf import setup_logging
 
 async def async_main() -> None:
     load_dotenv()
     api_key = getenv('API_KEY')
 
-    logger = getLogger('DogImageProcessor')
+    logger = setup_logging(log_file="logs/app.log")
     logger.info("Запуск приложения Dog Image Processor")
 
     parser = argparse.ArgumentParser(

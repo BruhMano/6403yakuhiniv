@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "dog_image_processor"
 version = "1.0.0"
 description = "Асинхронный процессор изображений собак"
+readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "aiohttp",
@@ -13,13 +14,13 @@ dependencies = [
     "opencv-python",
     "Pillow",
     "numpy",
-    "dotenv",
+    "python-dotenv",
     "numba",
 ]
 
 [project.scripts]
-dog-processor = "main:main"
+dog-processor = "dog_image_processor.__main__:main"
 
 [tool.setuptools]
-packages = ["implementation", "interfaces"]
-py-modules = ["main", "log_conf"]
+packages = ["dog_image_processor", "dog_image_processor.implementation", "dog_image_processor.interfaces"]
+py-modules = ["log_conf"]

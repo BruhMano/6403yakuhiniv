@@ -5,9 +5,8 @@
 - image_processing: Собственная реализация алгоритмов
 - cv2_image_processing: Реализация на основе OpenCV
 """
-
-from .image_processing import ImageProcessing
+from .dog_image import ColorDogImage, GrayscaleDogImage
 from .cv2_image_processing import Cv2ImageProcessing
 from .dog_image_processing import DogImageProcessor
-from .dog_image import ColorDogImage, GrayscaleDogImage
+from .image_processing import ImageProcessing
 

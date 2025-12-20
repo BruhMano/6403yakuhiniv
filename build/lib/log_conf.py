@@ -54,3 +54,5 @@ def setup_logging(log_file: str = "dog_app.log"):
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(simple_formatter)
     logger.addHandler(console_handler)
+    
+    return logger

@@ -38,7 +38,6 @@ class TestDogImageProcessorAsync(unittest.IsolatedAsyncioTestCase):
         with patch('aiohttp.ClientSession.get') as mock_session:
             # Настраиваем моки
             mock_response = AsyncMock()
-            mock_response.status = 200
             mock_response.json = AsyncMock(return_value=[
                 {
                     "url": "https://test.url/image1.jpg",

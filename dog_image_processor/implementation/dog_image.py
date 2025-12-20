@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from interfaces import IImageProcessing
+from dog_image_processor.interfaces import IImageProcessing
 from abc import ABC
 
 
